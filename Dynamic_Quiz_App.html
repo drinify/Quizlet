@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QUIZ</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <!-- Load Firebase -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        setLogLevel('Debug');
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-quiz-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        let app, db, auth, userId = 'anonymous';
+
+        $(document).ready(function() {
+            if (firebaseConfig) {
+                try {
+                    app = initializeApp(firebaseConfig);
+                    db = getFirestore(app);
+                    auth = getAuth(app);
+                    onAuthStateChanged(auth, (user) => {
+                        if (user) { userId = user.uid; $('#current-user-id').text(userId); }
+                    });
+                    const signInPromise = initialAuthToken ? signInWithCustomToken(auth, initialAuthToken) : signInAnonymously(auth);
+                    signInPromise.catch(e => console.error("Auth failed:", e));
+                    
+                    window.doc = doc;
+                    window.setDoc = setDoc;
+
+                } catch (e) {
+                    console.error("Firebase Init Failed:", e);
+                }
+            }
+            window.db = db;
+            window.appId = appId;
+            window.getUserId = () => auth?.currentUser?.uid || userId;
+            
+            $('#signup-view').show();
+        });
+    </script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    
+        .page-background { 
+            background-color: #f7fafc; 
+            background-image: linear-gradient(90deg, #e2e8f0 1px, transparent 1px), 
+                              linear-gradient(180deg, #e2e8f0 1px, transparent 1px);
+            background-size: 50px 50px;
+        }
+        .card { 
+            background-color: white; 
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1), 0 0 0 5px #3b82f6; 
+            border-radius: 1rem;
+            border: 2px solid #3b82f6; 
+        }
+        .results-card {
+            background-color: #ffffff; 
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            border-radius: 1rem;
+            border: 3px solid #f97316; 
+        }
+        .input-field { 
+           
+            transition: border-color 0.3s, box-shadow 0.3s;
+            border-width: 2px;
+            border-color: #93c5fd; 
+        }
+      
+        .input-field.border-red-500 {
+            border-color: #ef4444; 
+            box-shadow: 0 0 0 1px #ef4444;
+        }
+        .input-field.border-emerald-500 {
+            border-color: #10b981; 
+            box-shadow: 0 0 0 1px #10b981;
+        }
+
+        .option-button { 
+            transition: all 0.2s; 
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+  
+        .option-button.selected {
+            background-color: #4f46e5; 
+            color: white;
+            border-color: #4f46e5;
+            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
+        }
+        
+       
+        .correct-answer {
+            background-color: #d1fae5; 
+            border-color: #10b981; 
+            font-weight: bold;
+        }
+        .incorrect-selected {
+            background-color: #fee2e2;
+            border-color: #ef4444; 
+            text-decoration: line-through;
+        }
+        .correct-highlight {
+            background-color: #fde68a;
+            border-color: #fbbf24; 
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(251, 191, 36, 0.5);
+        }
+
+        .question-card.error-highlight {
+            box-shadow: inset 0 0 0 3px #ef4444 !important; 
+            animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
+        }
+        .required-label {
+            display: none; 
+            position: absolute;
+            top: -12px;
+            right: 20px;
+            background-color: #ef4444; 
+            color: white;
+            font-size: 0.75rem; 
+            font-weight: 700; 
+            text-transform: uppercase;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+        .question-card.error-highlight .required-label {
+            display: block;
+        }
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+    </style>
+</head>
+<body class="page-background text-gray-800 min-h-screen flex items-start justify-center p-4">
+
+    <div id="message-box" class="fixed top-4 left-1/2 -translate-x-1/2 p-3 bg-red-500 text-white rounded-lg shadow-xl z-50 hidden"></div>
+
+    <div class="w-full max-w-2xl">
+
+        <div id="signup-view" class="card p-8 space-y-6 max-w-lg mx-auto">
+            <h1 class="text-4xl font-black text-indigo-700 text-center border-b-4 border-indigo-300 pb-2">
+            
+            </h1>
+            <p class="text-gray-600 text-center">FORM </p>
+            
+            <form id="signup-form" class="space-y-4">
+               
+                <div>
+                    <label for="name" class="block text-sm font-medium text-gray-700">Full Name</label>
+                    <input type="text" id="name" required placeholder="Jane Doe" class="input-field mt-1 block w-full px-4 py-2 bg-gray-50 rounded-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                    <span class="error-message text-xs mt-1 block h-4"></span>
+                </div>
+                
+                <div>
+                    <label for="course-section" class="block text-sm font-medium text-gray-700">Course & Section</label>
+                    <input type="text" id="course-section" required placeholder="BSIT-2D" class="input-field mt-1 block w-full px-4 py-2 bg-gray-50 rounded-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                    <span class="error-message text-xs mt-1 block h-4"></span>
+                </div>
+            
+                <div>
+                    <label for="email" class="block text-sm font-medium text-gray-700">Email Address</label>
+                    <input type="email" id="email" required placeholder="jane.doe@school.edu" class="input-field mt-1 block w-full px-4 py-2 bg-gray-50 rounded-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                    <span class="error-message text-xs mt-1 block h-4"></span>
+                </div>
+                
+                <button type="submit" id="start-quiz-btn" disabled
+                        class="w-full py-3 bg-gray-400 text-gray-800 font-black rounded-full transition duration-150 ease-in-out disabled:opacity-70">
+                    Submit
+                </button>
+            </form>
+            
+            <div class="text-xs text-gray-400 text-center pt-2 border-t border-gray-200 mt-4"> <span id="current-user-id"> </span></div>
+        </div>
+
+        <div id="quiz-view" class="card p-8 space-y-6 hidden w-full">
+            <h1 class="text-4xl font-black text-indigo-700 text-center border-b-4 border-indigo-300 pb-2">
+             Quiz
+            </h1>
+
+            <div class="flex justify-between items-center pb-4 pt-2 border-b border-gray-100">
+                <div class="text-xl font-extrabold text-indigo-600">
+                    Questions: <span class="text-gray-500">10</span>
+                </div>
+        
+            </div>
+
+            <div id="questions-container" class="space-y-6">
+        
+            </div>
+
+            <div id="submit-container" class="pt-6 border-t border-gray-200 text-center">
+                <button id="submit-btn" class="py-3 px-10 bg-indigo-600 text-white text-lg font-black rounded-full hover:bg-indigo-700 shadow-lg shadow-indigo-500/50 transform transition hover:-translate-y-1">
+                    Submit 
+                </button>
+            </div>
+        </div>
+
+    </div> 
+
+    <div id="results-page-view" class="w-full max-w-3xl space-y-8 mt-12 hidden">
+        <div class="results-card p-8 space-y-4">
+            
+            <div class="flex flex-col md:flex-row md:items-start md:space-x-8 space-y-4 md:space-y-0">
+                
+                <div class="flex-shrink-0">
+                    <p class="text-lg text-gray-700 font-medium">Final Score:</p>
+                    <p class="text-6xl font-extrabold text-orange-600 leading-none">
+                        <span id="final-score"></span>/10
+                    </p>
+                </div>
+
+                <div class="flex-grow text-center md:text-left">
+                    <h2 class="text-4xl font-black text-orange-600 border-b-4 border-orange-300 pb-2 inline-block">
+                      Submitted
+                    </h2>
+                    <p id="feedback-message" class="text-xl text-gray-600 font-semibold pt-3"></p>
+        
+                </div>
+            </div>
+
+        <div id="graded-answers-container" class="space-y-6">
+           
+        </div>
+    </div>
+
+
+    <script>
+        const quizQuestions = [
+            { question: "Which jQuery selector selects elements with the class 'highlight'?", options: ["$('#highlight')", "$('.highlight')", "$('highlight')", "$(highlight)"], answer: "$('.highlight')", selected: null },
+            { question: "What is the output of 'typeof NaN' in JavaScript?", options: ["\"number\"", "\"undefined\"", "\"NaN\"", "\"string\""], answer: "\"number\"", selected: null },
+            { question: "Which jQuery method is used to attach an event handler function to one or more selected elements?", options: [".click()", ".on()", ".bind()", ".live()"], answer: ".on()", selected: null },
+            { question: "In JavaScript, what does the 'Promise.all()' method do?", options: ["Executes tasks sequentially", "Returns the first promise that settles", "Waits for all promises to resolve or one to reject", "Executes tasks in a loop"], answer: "Waits for all promises to resolve or one to reject", selected: null },
+            { question: "Which JavaScript keyword is used to stop the execution of a function and return a value?", options: ["break", "continue", "return", "yield"], answer: "return", selected: null },
+            { question: "To insert content *after* the selected element(s) in jQuery, you use which method?", options: [".append()", ".prepend()", ".after()", ".insertAfter()"], answer: ".after()", selected: null },
+            { question: "Which type of scope is created by the 'var' keyword in JavaScript?", options: ["Block scope", "Lexical scope", "Function scope", "Global scope"], answer: "Function scope", selected: null },
+            { question: "How do you prevent the default action of an event in jQuery (like a form submission)?", options: ["e.stopDefault()", "e.preventDefault()", "e.cancelEvent()", "e.stopPropagation()"], answer: "e.preventDefault()", selected: null },
+            { question: "Which array method creates a *new* array populated with the results of calling a provided function on every element in the calling array?", options: [".filter()", ".forEach()", ".map()", ".reduce()"], answer: ".map()", selected: null },
+            { question: "The jQuery function '$()' is an alias for which function?", options: ["document.query()", "document.getElementById()", "jQuery()", "new Element()"], answer: "jQuery()", selected: null }
+        ];
+
+        let isSubmitted = false;
+        
+        
+        function showMessage(text, isError = false) {
+            const $msgBox = $('#message-box');
+            $msgBox.text(text).removeClass('hidden bg-red-500 bg-emerald-500').addClass(isError ? 'bg-red-500' : 'bg-emerald-500');
+            setTimeout(() => $msgBox.addClass('hidden'), 3000);
+        }
+        
+       
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        let allInputsValid = false;
+
+        function checkFormValidity() {
+            let formValid = true;
+            $('#signup-form input').each(function() {
+                const $input = $(this);
+                const value = $input.val().trim();
+                const isEmail = $input.attr('id') === 'email';
+                
+                const isValid = value !== '' && (isEmail ? emailRegex.test(value.toLowerCase()) : value.length >= 3);
+                
+                if (!isValid) formValid = false;
+            });
+            
+            const $btn = $('#start-quiz-btn');
+            if (formValid) {
+                $btn.prop('disabled', false).removeClass('bg-gray-400 text-gray-800').addClass('bg-indigo-600 text-white hover:bg-indigo-700 shadow-md shadow-indigo-500/50');
+            } else {
+                $btn.prop('disabled', true).addClass('bg-gray-400 text-gray-800').removeClass('bg-indigo-600 text-white hover:bg-indigo-700 shadow-md shadow-indigo-500/50');
+            }
+            allInputsValid = formValid;
+        }
+
+        function validateInput($input) {
+            const value = $input.val().trim();
+            const isEmail = $input.attr('id') === 'email';
+            const $errorSpan = $input.closest('div').find('.error-message');
+            
+            const isValid = value.length > 0 && (isEmail ? emailRegex.test(value.toLowerCase()) : value.length >= 3);
+
+            $input.removeClass('border-red-500 border-emerald-500 border-indigo-300').addClass(
+                isValid ? 'border-emerald-500' : 'border-red-500'
+            );
+            
+            if (value === '') {
+               
+                $errorSpan.text('This field is required.').addClass('text-red-500').removeClass('text-emerald-500');
+            } else if (!isValid) {
+               
+                $errorSpan.text(isEmail ? 'Invalid email format.' : 'Must be at least 3 characters.').addClass('text-red-500').removeClass('text-emerald-500');
+            } else {
+               
+                $errorSpan.text('Valid.').addClass('text-emerald-500').removeClass('text-red-500');
+            }
+            
+            checkFormValidity();
+        }
+
+        $(document).ready(function() {
+        
+            checkFormValidity(); 
+            
+            $('#signup-form input').on('keyup blur', function() {
+                validateInput($(this));
+            });
+            
+            $('#signup-form').on('submit', async function(e) {
+                e.preventDefault();
+               
+                checkFormValidity(); 
+                if (!allInputsValid) return showMessage("Please correct the validation errors.", true);
+
+                const profileData = { 
+                    name: $('#name').val().trim(), 
+                    courseSection: $('#course-section').val().trim(), 
+                    email: $('#email').val().trim(), 
+                    timestamp: new Date().toISOString() 
+                };
+                
+                const db = window.db;
+                const appId = window.appId;
+                const userId = window.getUserId();
+                const doc = window.doc; 
+                const setDoc = window.setDoc;
+
+                if (db && userId !== 'anonymous' && doc && setDoc) {
+                    try {
+                      
+                        const profileDocRef = doc(db, `artifacts/${appId}/public/data/quiz_profiles/${userId}`);
+                        await setDoc(profileDocRef, profileData);
+                        showMessage("Profile saved! Starting quiz.", false);
+                    } catch (e) {
+                        console.error("Error saving profile:", e);
+                        showMessage("Error saving profile to database.", true);
+                    }
+                } else if (!db) {
+                     console.warn("Firestore not initialized.");
+                }
+
+                $('#signup-view').fadeOut(500, () => {
+                    renderAllQuestions(); 
+                    $('#quiz-view').fadeIn(500);
+                  
+                    $('html, body').animate({ scrollTop: $('#quiz-view').offset().top - 50 }, 300);
+                });
+            });
+
+            $('#submit-btn').on('click', function() {
+                if (isSubmitted) return;
+                
+                let allAnswered = true;
+                let firstErrorIndex = -1;
+
+                quizQuestions.forEach((q, index) => {
+                    const $card = $(`#q-card-${index}`);
+                    $card.removeClass('error-highlight');
+
+                    if (q.selected === null) {
+                        allAnswered = false;
+                        $card.addClass('error-highlight');
+                        if (firstErrorIndex === -1) firstErrorIndex = index;
+                    } 
+                });
+                
+                if (!allAnswered) {
+                    if (firstErrorIndex !== -1) {
+                        $('html, body').animate({
+                            scrollTop: $(`#q-card-${firstErrorIndex}`).offset().top - 100
+                        }, 500);
+                    }
+                    showMessage("Please answer all required questions.", true);
+                    return;
+                }
+
+                isSubmitted = true;
+                let score = calculateScore();
+
+                $('#quiz-view').fadeOut(500, () => {
+                    
+                    renderResults(score);
+                  
+                    $('#results-page-view').fadeIn(500);
+                  
+                    $('html, body').animate({ scrollTop: $('#results-page-view').offset().top - 50 }, 300);
+                });
+            });
+        });
+        
+        function calculateScore() {
+            let score = 0;
+            quizQuestions.forEach(q => {
+                if (q.selected === q.answer) {
+                    score++;
+                }
+            });
+            return score;
+        }
+
+        function toggleQuestionOptions() {
+            const $button = $(this);
+            
+            const $contentToToggle = $button.closest('.question-card').find('.question-content-to-toggle');
+            const isVisible = $button.data('visible');
+
+            if (isVisible) {
+                $contentToToggle.slideUp(300, function() {
+                    $button.html('Show').data('visible', false);
+                });
+            } else {
+                $contentToToggle.slideDown(300, function() {
+                    $button.html('Hide').data('visible', true);
+                });
+            }
+        }
+        
+        function renderAllQuestions() {
+            const $container = $('#questions-container');
+            $container.empty();
+
+            quizQuestions.forEach((q, index) => {
+              
+                const questionHtml = `
+                    <div id="q-card-${index}" class="question-card p-4 transition-all duration-300 relative">
+                        <div class="required-label">Required</div>
+                        
+                        <!-- Toggle Button (Always Visible) -->
+                        <div class="flex justify-end mb-2">
+                            <button data-q-index="${index}" class="toggle-question-options text-sm text-indigo-500 font-semibold hover:text-indigo-700 flex-shrink-0" data-visible="true">
+                                Hide
+                            </button>
+                        </div>
+                        
+                        <!-- Content to Hide/Show (Question Text + Options) -->
+                        <div class="question-content-to-toggle">
+                            <!-- Question Text -->
+                            <p class="text-lg font-bold text-gray-700 pb-3 border-b border-blue-200">${index + 1}. ${q.question}</p>
+                            
+                            <!-- Options Container -->
+                            <div class="options-group-container space-y-2 pt-3">
+                                ${q.options.map(option => `
+                                    <button data-answer="${option.replace(/"/g, '&quot;')}" data-q-index="${index}"
+                                            class="option-button w-full text-left p-3 bg-white border-2 border-indigo-300 text-gray-700 rounded-lg focus:outline-none text-sm hover:border-indigo-500">
+                                        ${option}
+                                    </button>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                $container.append(questionHtml);
+            });
+            
+            $('.option-button').off('click').on('click', handleSelection);
+            
+            $('.toggle-question-options').off('click').on('click', toggleQuestionOptions);
+        }
+
+        function handleSelection() {
+            if (isSubmitted) return; 
+
+            const $clicked = $(this);
+            const qIndex = parseInt($clicked.data('q-index'));
+            const selectedOption = $clicked.data('answer'); 
+            const $card = $clicked.closest('.question-card');
+
+            if (isNaN(qIndex) || qIndex < 0 || qIndex >= quizQuestions.length) return; 
+
+            $card.removeClass('error-highlight');
+
+            quizQuestions[qIndex].selected = selectedOption;
+
+            const $group = $clicked.closest('.options-group-container'); 
+            $group.find('.option-button').removeClass('selected');
+            
+            $clicked.addClass('selected');
+        }
+
+        function renderResults(score) {
+            $('#final-score').text(score);
+            
+            const percentage = (score / quizQuestions.length) * 100;
+            let resultText = '';
+
+            $('#feedback-message').html(`<span class="text-indigo-600 font-black">${resultText}</span>`);
+
+            const $resultsContainer = $('#graded-answers-container');
+            $resultsContainer.empty();
+
+            quizQuestions.forEach((q, index) => {
+                const isCorrect = q.selected === q.answer;
+                
+                const gradedOptions = q.options.map(option => {
+                    
+                    const optionEncoded = option.replace(/"/g, '&quot;');
+                    
+                    let classes = "w-full text-left p-3 border-2 rounded-lg text-sm transition-all duration-200 cursor-default";
+
+                    if (option === q.selected && isCorrect) {
+                     
+                        classes += " correct-answer text-emerald-700 border-emerald-500 ring-2 ring-emerald-300";
+                    } else if (option === q.selected && !isCorrect) {
+                        
+                        classes += " incorrect-selected text-red-700 border-red-500 ring-2 ring-red-300";
+                    } else if (option === q.answer) {
+                    
+                        classes += " correct-highlight text-yellow-900 border-yellow-500";
+                    } else {
+                        
+                        classes += " bg-gray-50 text-gray-600 border-gray-200";
+                    }
+
+                    return `
+                        <div data-answer="${optionEncoded}" class="${classes}">
+                            ${option}
+                            ${option === q.answer ? '<span class="ml-2 text-xs font-bold text-gray-800">(Correct Answer)</span>' : ''}
+                            ${option === q.selected && !isCorrect ? '<span class="ml-2 text-xs font-bold text-red-800">(Your Answer - Incorrect)</span>' : ''}
+                        </div>
+                    `;
+                }).join('');
+
+                const resultHtml = `
+                    <div class="results-card p-6 space-y-3">
+                        <div class="flex items-center space-x-3 pb-2 border-b border-gray-200">
+                            <span class="text-xl font-extrabold ${isCorrect ? 'text-emerald-600' : 'text-red-600'}">
+                                ${isCorrect ? '' : ''}
+                            </span>
+                            <h3 class="text-lg font-bold text-gray-700">Question ${index + 1}: ${q.question}</h3>
+                        </div>
+                        <div class="options-group space-y-2">
+                            ${gradedOptions}
+                        </div>
+                    </div>
+                `;
+                $resultsContainer.append(resultHtml);
+            });
+        }
+    </script>
+</body>
+</html>
